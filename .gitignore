@@ -1,0 +1,4 @@
+*.o
+*.obj
+Makefile
+vector_add
