@@ -2,3 +2,4 @@
 *.obj
 Makefile
 vector_add
+iterate_over_2d
