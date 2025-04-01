@@ -4,3 +4,4 @@ Makefile
 vector_add
 iterate_over_2d
 iterate_over_3d
+spmv_three_way
