@@ -7,6 +7,7 @@
 typedef struct {
   int width;
   int height;
+  int nnz;
   float *elements;
 } Matrix;
 
@@ -60,28 +61,32 @@ void spmv_global(const Matrix A, const Matrix x, const Matrix rs) {
   cudaFree(d_rs.elements);
 }
 
-void parse_matrices(const char *filename) {
+int parse_matrices(const char *filename, int *rows, int *cols, int *nnz) {
   MM_typecode matcode;
   FILE *f = fopen(filename, "r");
 
   if (mm_read_banner(f, &matcode) != 0) {
     printf("Couldn't parse matrix");
     fclose(f);
-    exit(1);
+    return 1;
   }
+
+  if (!mm_is_sparse(matcode)) {
+    printf("Matrix is non-sparse");
+    fclose(f);
+    return 1;
+  }
+
+  mm_read_mtx_crd_size(f, rows, cols, nnz);
 
   fclose(f);
 
-  printf("Matrix type: %s\n", mm_typecode_to_str(matcode));
+  return 0;
 }
 
 // Driver
 int main() {
   Matrix A, x, rs;
-
-  A.width = N;
-  A.height = N;
-  A.elements = new float[9]{1, 2, 3, 4, 5, 6, 7, 8, 9};
 
   x.width = 1;
   x.height = N;
@@ -91,9 +96,10 @@ int main() {
   rs.height = N;
   rs.elements = new float[3];
 
-  spmv_global(A, x, rs);
+  // spmv_global(A, x, rs);
 
-  parse_matrices("data/scircuit.mtx");
+  parse_matrices("data/scircuit.mtx", &A.height, &A.width, &A.nnz);
+  printf("Rows: %d\nCols: %d\nNNZ: %d", A.height, A.width, A.nnz);
 
   delete[] A.elements;
   delete[] x.elements;
