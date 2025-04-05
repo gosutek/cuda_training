@@ -70,6 +70,8 @@ void parse_matrices(const char *filename) {
     exit(1);
   }
 
+  fclose(f);
+
   printf("Matrix type: %s\n", mm_typecode_to_str(matcode));
 }
 
@@ -91,7 +93,7 @@ int main() {
 
   spmv_global(A, x, rs);
 
-  parse_matrices("mtx/scircuit.mtx");
+  parse_matrices("data/scircuit.mtx");
 
   delete[] A.elements;
   delete[] x.elements;
