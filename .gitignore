@@ -1,6 +1,4 @@
 *.o
-*.obj
-Makefile
 data/
 vector_add
 iterate_over_2d
