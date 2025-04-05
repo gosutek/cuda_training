@@ -1,4 +1,7 @@
-#include <iostream>
+// clang-format off
+#include <stdio.h>
+#include "lib/mmio.h"
+// clang-format on
 
 // M(row, col) = *(M.elements + row * M.width + col)
 typedef struct {
@@ -57,6 +60,19 @@ void spmv_global(const Matrix A, const Matrix x, const Matrix rs) {
   cudaFree(&d_rs.elements);
 }
 
+void parse_matrices(const char *filename) {
+  MM_typecode matcode;
+  FILE *f = fopen(filename, "r");
+
+  if (mm_read_banner(f, &matcode) != 0) {
+    printf("Couldn't parse matrix");
+    fclose(f);
+    exit(1);
+  }
+
+  printf("Matrix type: %s\n", mm_typecode_to_str(matcode));
+}
+
 // Driver
 int main() {
   Matrix A, x, rs;
@@ -75,9 +91,7 @@ int main() {
 
   spmv_global(A, x, rs);
 
-  for (int i = 0; i < rs.height; ++i) {
-    std::cout << rs.elements[i] << std::endl;
-  }
+  parse_matrices("mtx/scircuit.mtx");
 
   delete[] A.elements;
   delete[] x.elements;
