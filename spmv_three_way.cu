@@ -1,68 +1,24 @@
 // clang-format off
 #include <stdio.h>
 #include "lib/mmio.h"
+#include <cstdint>
 // clang-format on
 
-// M(row, col) = *(M.elements + row * M.width + col)
 typedef struct {
-  int width;
-  int height;
+  uint32_t *col_idx;
+  uint32_t *row_ptr;
+  double *val;
+  int rows;
+  int cols;
   int nnz;
-  float *elements;
-} Matrix;
+} CSRMatrix;
 
 #define BLOCK_SIZE 3
-#define N 3
 
-__global__ void spmv(Matrix A, Matrix x, Matrix rs) {
-  float rs_value = 0;
-  int row = blockIdx.x * blockDim.x + threadIdx.x;
-
-  if (row < A.height) {
-    for (int e = 0; e < A.width; ++e)
-      rs_value += A.elements[row * A.width + e] * x.elements[e];
-    rs.elements[row] = rs_value;
-  }
-}
-
-void spmv_global(const Matrix A, const Matrix x, const Matrix rs) {
-
-  // Load sparse
-  Matrix d_A;
-  d_A.width = A.width;
-  d_A.height = A.height;
-  size_t size = d_A.width * d_A.height * sizeof(float);
-  cudaMalloc(&d_A.elements, size);
-  cudaMemcpy(d_A.elements, A.elements, size, cudaMemcpyHostToDevice);
-
-  // Load vector
-  Matrix d_x;
-  d_x.width = 1;
-  d_x.height = x.height;
-  size = d_x.height * sizeof(float);
-  cudaMalloc(&d_x.elements, size);
-  cudaMemcpy(d_x.elements, x.elements, size, cudaMemcpyHostToDevice);
-
-  // Allocate result
-  Matrix d_rs;
-  d_rs.width = 1;
-  d_rs.height = x.height;
-  cudaMalloc(&d_rs.elements, size);
-
-  dim3 dimBlock(BLOCK_SIZE);
-  dim3 dimGrid((A.height + BLOCK_SIZE - 1) / BLOCK_SIZE);
-  spmv<<<dimGrid, dimBlock>>>(d_A, d_x, d_rs);
-
-  // Copy result to host
-  cudaMemcpy(rs.elements, d_rs.elements, size, cudaMemcpyDeviceToHost);
-
-  cudaFree(d_A.elements);
-  cudaFree(d_x.elements);
-  cudaFree(d_rs.elements);
-}
-
-int parse_matrices(FILE *f, int *rows, int *cols, int *nnz) {
+int parse_matrix(FILE *f, CSRMatrix *matrix) {
   MM_typecode matcode;
+  uint32_t *I, *J;
+  double *val;
 
   if (mm_read_banner(f, &matcode) != 0) {
     printf("Couldn't parse matrix");
@@ -70,36 +26,53 @@ int parse_matrices(FILE *f, int *rows, int *cols, int *nnz) {
   }
 
   if (!mm_is_sparse(matcode)) {
-    printf("Matrix is non-sparse");
+    printf("CSRMatrix is non-sparse");
     return 1;
   }
 
-  mm_read_mtx_crd_size(f, rows, cols, nnz);
+  if (mm_read_mtx_crd_size(f, &matrix->rows, &matrix->cols, &matrix->nnz) !=
+      0) {
+    return 1;
+  }
+
+  // Allocate for COO
+  I = new uint32_t[matrix->nnz];
+  J = new uint32_t[matrix->nnz];
+  val = new double[matrix->nnz];
+
+  // Read matrix in COO
+  for (int i = 0; i < matrix->nnz; ++i) {
+
+    fscanf(f, "%u %u %lg\n", &I[i], &J[i], &val[i]);
+    I[i]--;
+    J[i]--;
+  }
+
+  // Allocate for CSR
+  matrix->val = new double[matrix->nnz];
+  matrix->col_idx = new uint32_t[matrix->nnz];
+  matrix->row_ptr = new uint32_t[matrix->rows + 1];
+
+  printf("%u %u %lg\n", matrix->row_ptr[0], matrix->col_idx[0], matrix->val[0]);
+
+  delete[] I;
+  delete[] J;
+  delete[] val;
 
   return 0;
 }
 
 // Driver
 int main() {
+  CSRMatrix A;
   FILE *f = fopen("data/scircuit.mtx", "r");
-  Matrix A, x, rs;
-
-  x.width = 1;
-  x.height = N;
-  x.elements = new float[3]{1, 2, 3};
-
-  rs.width = 1;
-  rs.height = N;
-  rs.elements = new float[3];
 
   // spmv_global(A, x, rs);
 
-  parse_matrices(f, &A.height, &A.width, &A.nnz);
-  printf("Rows: %d\nCols: %d\nNNZ: %d", A.height, A.width, A.nnz);
-
-  delete[] A.elements;
-  delete[] x.elements;
-  delete[] rs.elements;
-
+  parse_matrix(f, &A);
   fclose(f);
+
+  delete[] A.val;
+  delete[] A.col_idx;
+  delete[] A.row_ptr;
 }
