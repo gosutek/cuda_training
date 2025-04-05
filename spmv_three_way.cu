@@ -61,31 +61,27 @@ void spmv_global(const Matrix A, const Matrix x, const Matrix rs) {
   cudaFree(d_rs.elements);
 }
 
-int parse_matrices(const char *filename, int *rows, int *cols, int *nnz) {
+int parse_matrices(FILE *f, int *rows, int *cols, int *nnz) {
   MM_typecode matcode;
-  FILE *f = fopen(filename, "r");
 
   if (mm_read_banner(f, &matcode) != 0) {
     printf("Couldn't parse matrix");
-    fclose(f);
     return 1;
   }
 
   if (!mm_is_sparse(matcode)) {
     printf("Matrix is non-sparse");
-    fclose(f);
     return 1;
   }
 
   mm_read_mtx_crd_size(f, rows, cols, nnz);
-
-  fclose(f);
 
   return 0;
 }
 
 // Driver
 int main() {
+  FILE *f = fopen("data/scircuit.mtx", "r");
   Matrix A, x, rs;
 
   x.width = 1;
@@ -98,10 +94,12 @@ int main() {
 
   // spmv_global(A, x, rs);
 
-  parse_matrices("data/scircuit.mtx", &A.height, &A.width, &A.nnz);
+  parse_matrices(f, &A.height, &A.width, &A.nnz);
   printf("Rows: %d\nCols: %d\nNNZ: %d", A.height, A.width, A.nnz);
 
   delete[] A.elements;
   delete[] x.elements;
   delete[] rs.elements;
+
+  fclose(f);
 }
