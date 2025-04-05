@@ -17,7 +17,7 @@ __global__ void spmv(Matrix A, Matrix x, Matrix rs) {
   float rs_value = 0;
   int row = blockIdx.x * blockDim.x + threadIdx.x;
 
-  if (row <= A.height) {
+  if (row < A.height) {
     for (int e = 0; e < A.width; ++e)
       rs_value += A.elements[row * A.width + e] * x.elements[e];
     rs.elements[row] = rs_value;
@@ -55,9 +55,9 @@ void spmv_global(const Matrix A, const Matrix x, const Matrix rs) {
   // Copy result to host
   cudaMemcpy(rs.elements, d_rs.elements, size, cudaMemcpyDeviceToHost);
 
-  cudaFree(&d_A.elements);
-  cudaFree(&d_x.elements);
-  cudaFree(&d_rs.elements);
+  cudaFree(d_A.elements);
+  cudaFree(d_x.elements);
+  cudaFree(d_rs.elements);
 }
 
 void parse_matrices(const char *filename) {
