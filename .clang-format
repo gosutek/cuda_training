@@ -1,0 +1,26 @@
+BasedOnStyle:  GNU
+AlignAfterOpenBracket: Align
+AllowAllParametersOfDeclarationOnNextLine: false
+AllowShortBlocksOnASingleLine: Always
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: AllIfsAndElse
+AllowShortLoopsOnASingleLine: true
+BreakAfterReturnType: Automatic
+BreakBeforeBraces: Linux
+ContinuationIndentWidth: 2
+Cpp11BracedListStyle: true
+KeepEmptyLines:
+  AtEndOfFile: true
+  AtStartOfFile: true
+  AtStartOfBlock: true
+Language:        Cpp
+MaxEmptyLinesToKeep: 1
+NamespaceIndentation: All
+PenaltyExcessCharacter: 100
+PenaltyReturnTypeOnItsOwnLine: 1
+PointerAlignment: Right
+SortIncludes: false
+SpaceBeforeParens: NonEmptyParentheses
+SpacesInContainerLiterals: false
+Standard:        Cpp11
