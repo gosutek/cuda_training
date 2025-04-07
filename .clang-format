@@ -1,4 +1,5 @@
 BasedOnStyle:  GNU
+ColumnLimit: 120
 AlignAfterOpenBracket: Align
 AllowAllParametersOfDeclarationOnNextLine: false
 AllowShortBlocksOnASingleLine: Always
@@ -19,7 +20,7 @@ MaxEmptyLinesToKeep: 1
 NamespaceIndentation: All
 PenaltyExcessCharacter: 100
 PenaltyReturnTypeOnItsOwnLine: 1
-PointerAlignment: Right
+PointerAlignment: Left
 SortIncludes: false
 SpaceBeforeParens: NonEmptyParentheses
 SpacesInContainerLiterals: false
