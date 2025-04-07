@@ -1,42 +1,35 @@
-NVCC = nvcc
-CC = gcc
+NVCC := nvcc
+CC := gcc
 
-NVCC_FLAGS = -O3 -arch=sm_89
-CFLAGS = -O3
+NVCC_FLAGS := -O3 -arch=sm_89
+CFLAGS := -O3
 
-TARGETS = vector_add iterate_over_2d iterate_over_3d spmv_three_way
+BIN := bin/
+SRC := src/
+LIB := include/
 
-SRCS_VECTOR_ADD = vector_add.cu
-SRCS_ITERATE_2D = iterate_over_2d.cu
-SRCS_ITERATE_3D = iterate_over_3d.cu
-SRCS_SPMV_THREE_WAY = spmv_three_way.cu
+SOURCES := $(wildcard $(SRC)*.cu $(SRC)*.c)
+LIBRARIES := $(wildcard $(LIB)*.h)
+TMP_OBJECTS = $(SOURCES:$(SRC)%.c=$(BIN)%.o)
+OBJECTS := $(TMP_OBJECTS:$(SRC)%.cu=$(BIN)%.o)
 
-OBJS_VECTOR_ADD = $(SRCS_VECTOR_ADD:.cu=.o)
-OBJS_ITERATE_2D = $(SRCS_ITERATE_2D:.cu=.o)
-OBJS_ITERATE_3D = $(SRCS_ITERATE_3D:.cu=.o)
-OBJS_SPMV_THREE_WAY = $(SRCS_SPMV_THREE_WAY:.cu=.o) lib/mmio.o
+TARGET := $(BIN)spmv_three_way
+MMIO_OBJ := $(BIN)mmio.o
 
-all: $(TARGETS)
+all: $(TARGET)
 
-vector_add: $(OBJS_VECTOR_ADD)
-	$(NVCC) $(NVCC_FLAGS) $< -o $@
+debug_make:
+	@echo "SOURCES=$(SOURCES)"
+	@echo "LIBRARIES=$(LIBRARIES)"
+	@echo "OBJECTS=$(OBJECTS)"
 
-iterate_over_2d: $(OBJS_ITERATE_2D)
-	$(NVCC) $(NVCC_FLAGS) $< -o $@
-
-iterate_over_3d: $(OBJS_ITERATE_3D)
-	$(NVCC) $(NVCC_FLAGS) $< -o $@
-
-spmv_three_way: $(OBJS_SPMV_THREE_WAY)
+$(TARGET): $(SRC)spmv_three_way.cu $(MMIO_OBJ)
 	$(NVCC) $(NVCC_FLAGS) $^ -o $@
 
-%.o: %.cu
-	$(NVCC) $(NVCC_FLAGS) -c $< -o $@
-
-lib/mmio.o: lib/mmio.c lib/mmio.h
+$(MMIO_OBJ): $(SRC)mmio.c $(LIB)mmio.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-clean:
-	rm -f $(OBJS_VECTOR_ADD) $(OBJS_ITERATE_2D) $(OBJS_ITERATE_3D) $(OBJS_SPMV_THREE_WAY) lib/mmio.o $(TARGETS)
+.PHONE: all clean
 
-.PHONY: all clean
+clean:
+	rm -f $(BIN)*
