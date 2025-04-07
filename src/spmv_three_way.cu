@@ -100,7 +100,7 @@ void convert_coo_to_csr(std::vector<COO_Element> coo, CSRMatrix& matrix)
     matrix.col_idx[i] = e.col;
     matrix.val[i] = e.val;
   }
-  std::partial_sum(coo.begin(), coo.end(), coo.begin());
+  std::partial_sum(matrix.row_ptr.begin(), matrix.row_ptr.end(), matrix.row_ptr.begin());
 }
 
 CSRMatrix parse_and_convert(const char* filename)
