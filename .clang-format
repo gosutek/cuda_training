@@ -22,6 +22,6 @@ PenaltyExcessCharacter: 100
 PenaltyReturnTypeOnItsOwnLine: 1
 PointerAlignment: Left
 SortIncludes: false
-SpaceBeforeParens: NonEmptyParentheses
+SpaceBeforeParens: ControlStatements
 SpacesInContainerLiterals: false
 Standard:        Cpp11
