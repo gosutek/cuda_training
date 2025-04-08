@@ -29,20 +29,27 @@ struct CSRMatrix : public Matrix {
   std::vector<uint32_t> row_ptr;
   std::vector<VAL_TYPE> val;
 
-  CSRMatrix(int r, int c, int z) : col_idx(z), val(z), row_ptr(r + 1)
+  CSRMatrix(int r, int c, int z) : col_idx(), val(), row_ptr()
   {
     rows = r;
     cols = c;
+    nnz = z;
+
+    col_idx.reserve(nnz);
+    val.reserve(nnz);
+    row_ptr.reserve(rows + 1);
   }
 };
 
 struct DenseMatrix : public Matrix {
   std::vector<VAL_TYPE> data;
 
-  DenseMatrix(uint32_t r, uint32_t c) : data(r * c, 0)
+  DenseMatrix(uint32_t r, uint32_t c) : data()
   {
     rows = r;
     cols = c;
+
+    data.reserve(r * c);
   }
 };
 
