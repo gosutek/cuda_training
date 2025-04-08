@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <tuple>
 #include <vector>
+#include <memory>
 
 #define BLOCK_SIZE 3
 #define VAL_TYPE double
@@ -118,8 +119,10 @@ std::unique_ptr<CSRMatrix> parse_sparse_matrix(const char* filename)
 
   if (!mm_is_sparse(matcode)) { throw std::runtime_error("CSRMatrix is non-sparse"); }
 
-  CSRMatrix matrix;
+  int rows, cols, nnz;
   if (mm_read_mtx_crd_size(f, &rows, &cols, &nnz) != 0) { throw std::runtime_error("Failed to read matrix size"); }
+
+  std::unique_ptr<CSRMatrix> matrix = std::make_unique<CSRMatrix>(rows, cols, nnz);
 
   std::vector<COO_Element> coo_elements;
   coo_elements.reserve(matrix->nnz);
@@ -132,8 +135,17 @@ std::unique_ptr<CSRMatrix> parse_sparse_matrix(const char* filename)
   }
   fclose(f);
 
-  convert_coo_to_csr(std::move(coo_elements),
-                     matrix); // coo_elements no longer exists
+  std::sort(coo_elements.begin(), coo_elements.end(),
+            [](const auto& a, const auto& b) { return std::tie(a.row, a.col) < std::tie(b.row, b.col); });
+
+  for (size_t i = 0; i < coo_elements.size(); ++i) {
+    const auto& e = coo_elements[i];
+    matrix->row_ptr[e.row + 1]++; // Account for element ONLY on the previous row
+    matrix->col_idx[i] = e.col;
+    matrix->val[i] = e.val;
+  }
+  std::partial_sum(matrix->row_ptr.begin(), matrix->row_ptr.end(), matrix->row_ptr.begin());
+
   return matrix;
 }
 
@@ -143,7 +155,8 @@ int main()
   // spmv_global(A, x, rs);
 
   try {
-    CSRMatrix A = parse_and_convert("data/scircuit.mtx");
+    std::unique_ptr<CSRMatrix> A = parse_sparse_matrix("data/scircuit.mtx");
+    // std::unique_ptr<CSRMatrix> x = parse_and_convert("data/scircuit_b.mtx");
   } catch (const std::exception& e) {
     std::cerr << "Error: " << e.what() << "\n";
     return 1;
