@@ -110,27 +110,16 @@ __global__ void spmv(CSRMatrix A, CSRMatrix x, CSRMatrix rs)
 std::unique_ptr<CSRMatrix> parse_sparse_matrix(const char* filename)
 {
   FILE* f;
-  if (!(f = fopen(filename, "r"))) {
-    fclose(f);
-    throw std::runtime_error("Failed to open file");
-  }
+  f = fopen(filename, "r");
+  if (f == NULL) { throw std::runtime_error("Failed to open file"); }
 
   MM_typecode matcode;
-  if (mm_read_banner(f, &matcode) != 0) {
-    fclose(f);
-    throw std::runtime_error("Couldn't parse matrix");
-  }
+  if (mm_read_banner(f, &matcode) != 0) { throw std::runtime_error("Couldn't parse matrix"); }
 
-  if (!mm_is_sparse(matcode)) {
-    fclose(f);
-    throw std::runtime_error("CSRMatrix is non-sparse");
-  }
+  if (!mm_is_sparse(matcode)) { throw std::runtime_error("CSRMatrix is non-sparse"); }
 
   CSRMatrix matrix;
-  if (mm_read_mtx_crd_size(f, &matrix.rows, &matrix.cols, &matrix.nnz) != 0) {
-    fclose(f);
-    throw std::runtime_error("Failed to read matrix size");
-  }
+  if (mm_read_mtx_crd_size(f, &rows, &cols, &nnz) != 0) { throw std::runtime_error("Failed to read matrix size"); }
 
   std::vector<COO_Element> coo_elements;
   coo_elements.reserve(matrix->nnz);
