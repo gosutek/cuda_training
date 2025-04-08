@@ -9,7 +9,7 @@
 #include <vector>
 #include <memory>
 
-#define BLOCK_SIZE 3
+#define BLOCK_SIZE 256
 #define VAL_TYPE double
 
 struct COO_Element {
@@ -54,7 +54,7 @@ struct DenseMatrix : public Matrix {
 };
 
 /*
-__global__ void spmv(CSRMatrix A, CSRMatrix x, CSRMatrix rs)
+__global__ void spmv(const CSRMatrix* A, const DenseMatrix* x, const DenseMatrix* rs)
 {
 
   float rs_value = 0;
@@ -69,51 +69,67 @@ __global__ void spmv(CSRMatrix A, CSRMatrix x, CSRMatrix rs)
   }
 }
 */
-// void spmv_global(const CSRMatrix A, const CSRMatrix x, const CSRMatrix rs)
-// {
-//
-//   // Load sparse
-//
-//   CSRMatrix d_A;
-//
-//   d_A.cols = A.cols;
-//
-//   d_A.rows = A.rows;
-//
-//   uint32_t* col_idx_ptr = d_A.col_idx.data();
-//   uint32_t* row_ptr_ptr = d_A.row_ptr.data();
-//   VAL_TYPE* val_ptr = d_A.val.data();
-//
-//   // Allocate for the 3 arrays
-//   cudaMalloc(&col_idx_ptr, A.col_idx.size() * sizeof(uint32_t));
-//   cudaMalloc(&row_ptr_ptr, A.row_ptr.size() * sizeof(uint32_t));
-//   cudaMalloc(&val_ptr, A.val.size() * sizeof(VAL_TYPE));
-//
-//   // Copy 3 arrays to device
-//   cudaMemcpy(col_idx_ptr, A.col_idx.data(), A.col_idx.size() * sizeof(uint32_t), cudaMemcpyHostToDevice);
-//   cudaMemcpy(row_ptr_ptr, A.row_ptr.data(), A.row_ptr.size() * sizeof(uint32_t), cudaMemcpyHostToDevice);
-//   cudaMemcpy(val_ptr, A.val.data(), A.val.size() * sizeof(VAL_TYPE), cudaMemcpyHostToDevice);
-//
-//   // Load vector
-//   // Allocate result
-//   // dim3 dimBlock(BLOCK_SIZE);
-//
-//   // dim3 dimGrid((A.rows + BLOCK_SIZE - 1) / BLOCK_SIZE);
-//
-//   // spmv<<<dimGrid, dimBlock>>>(d_A, d_x, d_rs);
-//
-//   // Copy result to host
-//   // cudaMemcpy(rs.elements, d_rs.elements, size, cudaMemcpyDeviceToHost);
-//
-//   // Deallocate A
-//   cudaFree(col_idx_ptr);
-//   cudaFree(row_ptr_ptr);
-//   cudaFree(val_ptr);
-//
-//   // Deallocate x
-//
-//   // Deallocate result
-// }
+
+std::unique_ptr<DenseMatrix> spmv_global(const std::unique_ptr<CSRMatrix> A, const std::unique_ptr<DenseMatrix> x)
+{
+
+  // Load sparse
+  std::unique_ptr<CSRMatrix> d_A = std::make_unique<CSRMatrix>(A->rows, A->cols, A->nnz);
+
+  uint32_t* sparse_col_idx_ptr = d_A->col_idx.data();
+  uint32_t* sparse_row_ptr_ptr = d_A->row_ptr.data();
+  VAL_TYPE* sparse_val_ptr = d_A->val.data();
+
+  // Allocate for the 3 arrays
+  cudaMalloc(&sparse_col_idx_ptr, A->col_idx.size() * sizeof(uint32_t));
+  cudaMalloc(&sparse_row_ptr_ptr, A->row_ptr.size() * sizeof(uint32_t));
+  cudaMalloc(&sparse_val_ptr, A->val.size() * sizeof(VAL_TYPE));
+
+  // Copy 3 arrays to device
+  cudaMemcpy(sparse_col_idx_ptr, A->col_idx.data(), A->col_idx.size() * sizeof(uint32_t), cudaMemcpyHostToDevice);
+  cudaMemcpy(sparse_row_ptr_ptr, A->row_ptr.data(), A->row_ptr.size() * sizeof(uint32_t), cudaMemcpyHostToDevice);
+  cudaMemcpy(sparse_val_ptr, A->val.data(), A->val.size() * sizeof(VAL_TYPE), cudaMemcpyHostToDevice);
+
+  // Load vector
+  std::unique_ptr<DenseMatrix> d_x = std::make_unique<DenseMatrix>(x->rows, x->cols);
+
+  VAL_TYPE* vector_val_ptr = d_x->data.data();
+
+  cudaMalloc(&vector_val_ptr, x->data.size() * sizeof(VAL_TYPE));
+
+  cudaMemcpy(vector_val_ptr, x->data.data(), x->data.size() * sizeof(VAL_TYPE), cudaMemcpyHostToDevice);
+
+  // Allocate result
+  std::unique_ptr<DenseMatrix> d_rs = std::make_unique<DenseMatrix>(x->rows, x->cols);
+
+  VAL_TYPE* result_val_ptr = d_rs->data.data();
+
+  cudaMalloc(&result_val_ptr, x->data.size() * sizeof(VAL_TYPE));
+
+  dim3 dimBlock(BLOCK_SIZE);
+
+  dim3 dimGrid((A->rows + BLOCK_SIZE - 1) / BLOCK_SIZE);
+
+  // spmv<<<dimGrid, dimBlock>>>(d_A.get(), d_x.get(), d_rs.get());
+
+  // Copy result to host
+  cudaMemcpy(d_rs->data.data(), result_val_ptr, x->data.size() * sizeof(VAL_TYPE), cudaMemcpyDeviceToHost);
+
+  // Deallocate A
+  cudaFree(sparse_col_idx_ptr);
+  cudaFree(sparse_row_ptr_ptr);
+  cudaFree(sparse_val_ptr);
+
+  // Deallocate x
+  cudaFree(vector_val_ptr);
+
+  // Deallocate result
+  cudaFree(result_val_ptr);
+
+  // d_A, d_x, A, x freed as they go out of scope
+
+  return d_rs;
+}
 
 std::unique_ptr<CSRMatrix> parse_sparse_matrix(const char* filename)
 {
@@ -186,11 +202,12 @@ std::unique_ptr<DenseMatrix> parse_dense_matrix(const char* filename)
 // Driver
 int main()
 {
-  // spmv_global(A, x, rs);
 
   try {
     std::unique_ptr<CSRMatrix> A = parse_sparse_matrix("data/scircuit.mtx");
     std::unique_ptr<DenseMatrix> x = parse_dense_matrix("data/scircuit_b.mtx");
+
+    std::unique_ptr<DenseMatrix> global_result = spmv_global(std::move(A), std::move(x));
 
     std::cout << x->data[0] << std::endl;
   } catch (const std::exception& e) {
