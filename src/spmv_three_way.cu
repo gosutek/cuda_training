@@ -16,11 +16,33 @@ struct COO_Element {
   VAL_TYPE val;
 };
 
-struct CSRMatrix {
-  int rows = 0, cols = 0, nnz = 0;
+struct Matrix {
+  int rows = 0, cols = 0;
+};
+
+struct CSRMatrix : public Matrix {
+
+  int nnz = 0;
+
   std::vector<uint32_t> col_idx;
   std::vector<uint32_t> row_ptr;
   std::vector<VAL_TYPE> val;
+
+  CSRMatrix(int r, int c, int z) : col_idx(z), val(z), row_ptr(r + 1)
+  {
+    rows = r;
+    cols = c;
+  }
+};
+
+struct DenseMatrix : public Matrix {
+  std::vector<VAL_TYPE> data;
+
+  DenseMatrix(uint32_t r, uint32_t c) : data(r * c, 0)
+  {
+    rows = r;
+    cols = c;
+  }
 };
 
 /*
@@ -39,71 +61,53 @@ __global__ void spmv(CSRMatrix A, CSRMatrix x, CSRMatrix rs)
   }
 }
 */
-void spmv_global(const CSRMatrix A, const CSRMatrix x, const CSRMatrix rs)
-{
+// void spmv_global(const CSRMatrix A, const CSRMatrix x, const CSRMatrix rs)
+// {
+//
+//   // Load sparse
+//
+//   CSRMatrix d_A;
+//
+//   d_A.cols = A.cols;
+//
+//   d_A.rows = A.rows;
+//
+//   uint32_t* col_idx_ptr = d_A.col_idx.data();
+//   uint32_t* row_ptr_ptr = d_A.row_ptr.data();
+//   VAL_TYPE* val_ptr = d_A.val.data();
+//
+//   // Allocate for the 3 arrays
+//   cudaMalloc(&col_idx_ptr, A.col_idx.size() * sizeof(uint32_t));
+//   cudaMalloc(&row_ptr_ptr, A.row_ptr.size() * sizeof(uint32_t));
+//   cudaMalloc(&val_ptr, A.val.size() * sizeof(VAL_TYPE));
+//
+//   // Copy 3 arrays to device
+//   cudaMemcpy(col_idx_ptr, A.col_idx.data(), A.col_idx.size() * sizeof(uint32_t), cudaMemcpyHostToDevice);
+//   cudaMemcpy(row_ptr_ptr, A.row_ptr.data(), A.row_ptr.size() * sizeof(uint32_t), cudaMemcpyHostToDevice);
+//   cudaMemcpy(val_ptr, A.val.data(), A.val.size() * sizeof(VAL_TYPE), cudaMemcpyHostToDevice);
+//
+//   // Load vector
+//   // Allocate result
+//   // dim3 dimBlock(BLOCK_SIZE);
+//
+//   // dim3 dimGrid((A.rows + BLOCK_SIZE - 1) / BLOCK_SIZE);
+//
+//   // spmv<<<dimGrid, dimBlock>>>(d_A, d_x, d_rs);
+//
+//   // Copy result to host
+//   // cudaMemcpy(rs.elements, d_rs.elements, size, cudaMemcpyDeviceToHost);
+//
+//   // Deallocate A
+//   cudaFree(col_idx_ptr);
+//   cudaFree(row_ptr_ptr);
+//   cudaFree(val_ptr);
+//
+//   // Deallocate x
+//
+//   // Deallocate result
+// }
 
-  // Load sparse
-
-  CSRMatrix d_A;
-
-  d_A.cols = A.cols;
-
-  d_A.rows = A.rows;
-
-  uint32_t* col_idx_ptr = d_A.col_idx.data();
-  uint32_t* row_ptr_ptr = d_A.row_ptr.data();
-  VAL_TYPE* val_ptr = d_A.val.data();
-
-  // Allocate for the 3 arrays
-  cudaMalloc(&col_idx_ptr, A.col_idx.size() * sizeof(uint32_t));
-  cudaMalloc(&row_ptr_ptr, A.row_ptr.size() * sizeof(uint32_t));
-  cudaMalloc(&val_ptr, A.val.size() * sizeof(VAL_TYPE));
-
-  // Copy 3 arrays to device
-  cudaMemcpy(col_idx_ptr, A.col_idx.data(), A.col_idx.size() * sizeof(uint32_t), cudaMemcpyHostToDevice);
-  cudaMemcpy(row_ptr_ptr, A.row_ptr.data(), A.row_ptr.size() * sizeof(uint32_t), cudaMemcpyHostToDevice);
-  cudaMemcpy(val_ptr, A.val.data(), A.val.size() * sizeof(VAL_TYPE), cudaMemcpyHostToDevice);
-
-  // Load vector
-  // Allocate result
-  // dim3 dimBlock(BLOCK_SIZE);
-
-  // dim3 dimGrid((A.rows + BLOCK_SIZE - 1) / BLOCK_SIZE);
-
-  // spmv<<<dimGrid, dimBlock>>>(d_A, d_x, d_rs);
-
-  // Copy result to host
-  // cudaMemcpy(rs.elements, d_rs.elements, size, cudaMemcpyDeviceToHost);
-
-  // Deallocate A
-  cudaFree(col_idx_ptr);
-  cudaFree(row_ptr_ptr);
-  cudaFree(val_ptr);
-
-  // Deallocate x
-
-  // Deallocate result
-}
-
-void convert_coo_to_csr(std::vector<COO_Element> coo, CSRMatrix& matrix)
-{
-  std::sort(coo.begin(), coo.end(),
-            [](const auto& a, const auto& b) { return std::tie(a.row, a.col) < std::tie(b.row, b.col); });
-
-  matrix.col_idx.resize(matrix.nnz);
-  matrix.val.resize(matrix.nnz);
-  matrix.row_ptr.resize(matrix.rows + 1, 0);
-
-  for (size_t i = 0; i < coo.size(); ++i) {
-    const auto& e = coo[i];
-    matrix.row_ptr[e.row + 1]++; // Account for element ONLY on the previous row
-    matrix.col_idx[i] = e.col;
-    matrix.val[i] = e.val;
-  }
-  std::partial_sum(matrix.row_ptr.begin(), matrix.row_ptr.end(), matrix.row_ptr.begin());
-}
-
-CSRMatrix parse_and_convert(const char* filename)
+std::unique_ptr<CSRMatrix> parse_sparse_matrix(const char* filename)
 {
   FILE* f;
   if (!(f = fopen(filename, "r"))) {
@@ -129,8 +133,8 @@ CSRMatrix parse_and_convert(const char* filename)
   }
 
   std::vector<COO_Element> coo_elements;
-  coo_elements.reserve(matrix.nnz);
-  for (int i = 0; i < matrix.nnz; ++i) {
+  coo_elements.reserve(matrix->nnz);
+  for (int i = 0; i < matrix->nnz; ++i) {
     COO_Element e;
     fscanf(f, "%u %u %lg\n", &e.row, &e.col, &e.val);
     e.row--;
