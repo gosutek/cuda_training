@@ -124,7 +124,7 @@ std::unique_ptr<CSRMatrix> parse_sparse_matrix(const char* filename)
   MM_typecode matcode;
   if (mm_read_banner(f, &matcode) != 0) { throw std::runtime_error("Couldn't parse matrix"); }
 
-  if (!mm_is_sparse(matcode)) { throw std::runtime_error("CSRMatrix is non-sparse"); }
+  if (!mm_is_sparse(matcode)) { throw std::runtime_error("CSRMatrix is non-sparse -> should be sparse"); }
 
   int rows, cols, nnz;
   if (mm_read_mtx_crd_size(f, &rows, &cols, &nnz) != 0) { throw std::runtime_error("Failed to read matrix size"); }
@@ -156,6 +156,33 @@ std::unique_ptr<CSRMatrix> parse_sparse_matrix(const char* filename)
   return matrix;
 }
 
+std::unique_ptr<DenseMatrix> parse_dense_matrix(const char* filename)
+{
+  FILE* f;
+  f = fopen(filename, "r");
+  if (f == NULL) { throw std::runtime_error("Failed to open file"); }
+
+  MM_typecode matcode;
+  if (mm_read_banner(f, &matcode) != 0) { throw std::runtime_error("Couldn't parse matrix"); }
+
+  if (!mm_is_dense(matcode)) { throw std::runtime_error("CSRMatrix is non-dense -> should be dense"); }
+
+  int rows, cols;
+  if (mm_read_mtx_array_size(f, &rows, &cols) != 0) { throw std::runtime_error("Failed to read matrix size"); }
+
+  std::unique_ptr<DenseMatrix> matrix = std::make_unique<DenseMatrix>(rows, cols);
+
+  for (int i = 0; i < 1; ++i) {
+    VAL_TYPE e;
+    fscanf(f, "%lg\n", &e);
+    matrix->data.push_back(e);
+  }
+
+  fclose(f);
+
+  return matrix;
+}
+
 // Driver
 int main()
 {
@@ -163,7 +190,9 @@ int main()
 
   try {
     std::unique_ptr<CSRMatrix> A = parse_sparse_matrix("data/scircuit.mtx");
-    // std::unique_ptr<CSRMatrix> x = parse_and_convert("data/scircuit_b.mtx");
+    std::unique_ptr<DenseMatrix> x = parse_dense_matrix("data/scircuit_b.mtx");
+
+    std::cout << x->data[0] << std::endl;
   } catch (const std::exception& e) {
     std::cerr << "Error: " << e.what() << "\n";
     return 1;
