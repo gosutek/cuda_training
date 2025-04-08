@@ -8,50 +8,9 @@
 #include <tuple>
 #include <vector>
 #include <memory>
+#include "../include/spmv_three_way.h"
 
 #define BLOCK_SIZE 256
-#define VAL_TYPE double
-
-struct COO_Element {
-  uint32_t row, col;
-  VAL_TYPE val;
-};
-
-struct Matrix {
-  int rows = 0, cols = 0;
-};
-
-struct CSRMatrix : public Matrix {
-
-  int nnz = 0;
-
-  std::vector<uint32_t> col_idx;
-  std::vector<uint32_t> row_ptr;
-  std::vector<VAL_TYPE> val;
-
-  CSRMatrix(int r, int c, int z) : col_idx(), val(), row_ptr()
-  {
-    rows = r;
-    cols = c;
-    nnz = z;
-
-    col_idx.reserve(nnz);
-    val.reserve(nnz);
-    row_ptr.reserve(rows + 1);
-  }
-};
-
-struct DenseMatrix : public Matrix {
-  std::vector<VAL_TYPE> data;
-
-  DenseMatrix(uint32_t r, uint32_t c) : data()
-  {
-    rows = r;
-    cols = c;
-
-    data.reserve(r * c);
-  }
-};
 
 /*
 __global__ void spmv(const CSRMatrix* A, const DenseMatrix* x, const DenseMatrix* rs)
@@ -209,7 +168,6 @@ int main()
 
     std::unique_ptr<DenseMatrix> global_result = spmv_global(std::move(A), std::move(x));
 
-    std::cout << x->data[0] << std::endl;
   } catch (const std::exception& e) {
     std::cerr << "Error: " << e.what() << "\n";
     return 1;
