@@ -9,17 +9,18 @@
 
 #define BLOCK_SIZE 256
 
-__global__ void spmv(int rows, const uint32_t* row_ptr, const uint32_t* col_idx, const VAL_TYPE* val,
-                     const VAL_TYPE* x_data, VAL_TYPE* y_data)
+__global__ void spmv(const CSRMatrix A, const DenseMatrix x, DenseMatrix y)
 {
   int row = blockIdx.x * blockDim.x + threadIdx.x;
 
-  if (row < rows) {
+  if (row < A.rows) {
 
     VAL_TYPE row_result_val = 0.0;
 
-    for (uint32_t i = row_ptr[row]; i < row_ptr[row + 1]; ++i) { row_result_val += val[i] * x_data[col_idx[i]]; }
-    y_data[row] = row_result_val;
+    for (uint32_t i = A.row_ptr[row]; i < A.row_ptr[row + 1]; ++i) {
+      row_result_val += A.val[i] * x.data[A.col_idx[i]];
+    }
+    y.data[row] = row_result_val;
   }
 }
 
@@ -54,7 +55,7 @@ DenseMatrix spmv_global(const CSRMatrix& A, const DenseMatrix& x)
 
   dim3 dimGrid((A.rows + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
-  spmv<<<dimGrid, dimBlock>>>(d_A.rows, d_A.row_ptr, d_A.col_idx, d_A.val, d_x.data, d_y.data);
+  spmv<<<dimGrid, dimBlock>>>(d_A, d_x, d_y);
 
   // Allocate host y
   DenseMatrix y = DenseMatrix(x.rows, x.cols);
@@ -153,8 +154,6 @@ int main()
     DenseMatrix x = parse_dense_matrix("data/scircuit_b.mtx");
 
     DenseMatrix y_global = spmv_global(A, x);
-
-    std::cout << y_global.data[0] << std::endl;
 
   } catch (const std::exception& e) {
     std::cerr << "Error: " << e.what() << "\n";
