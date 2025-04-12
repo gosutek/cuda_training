@@ -8,6 +8,7 @@
 #include "../include/spmv_three_way.h"
 
 #define BLOCK_SIZE 256
+#define DEVICE_ID 0
 
 __global__ void spmv(const CSRMatrix A, const DenseMatrix x, DenseMatrix y)
 {
@@ -22,6 +23,79 @@ __global__ void spmv(const CSRMatrix A, const DenseMatrix x, DenseMatrix y)
     }
     y.data[row] = row_result_val;
   }
+}
+
+DenseMatrix spmv_l2_window(const CSRMatrix& A, const DenseMatrix& x)
+{
+  cudaStream_t stream;
+  cudaStreamCreate(&stream);
+
+  cudaDeviceProp prop;
+  cudaGetDeviceProperties(&prop, DEVICE_ID);
+
+  size_t size = std::min(int(prop.l2CacheSize * 0.75), prop.persistingL2CacheMaxSize);
+  cudaDeviceSetLimit(cudaLimitPersistingL2CacheSize,
+                     size); // cudaLimitPersistingL2CacheSize -> Global limit for all persistent data
+
+  size_t window_size
+    = std::min(prop.accessPolicyMaxWindowSize,
+               (int)x.data_size); // accessPolicyMaxWindowSize -> Per-stream limit for a single persistent region
+
+  CSRMatrix d_A(A.rows, A.cols, A.nnz, CREATE_FOR_DEVICE);
+  // Allocate for the 3 arrays
+  cudaMalloc(&d_A.col_idx, d_A.col_idx_size);
+  cudaMalloc(&d_A.row_ptr, d_A.row_ptr_size);
+  cudaMalloc(&d_A.val, d_A.val_size);
+
+  // Copy 3 arrays to device
+  cudaMemcpy(d_A.col_idx, A.col_idx, d_A.col_idx_size, cudaMemcpyHostToDevice);
+  cudaMemcpy(d_A.row_ptr, A.row_ptr, d_A.row_ptr_size, cudaMemcpyHostToDevice);
+  cudaMemcpy(d_A.val, A.val, d_A.val_size, cudaMemcpyHostToDevice);
+
+  // Load x
+  DenseMatrix d_x(x.rows, x.cols, CREATE_FOR_DEVICE);
+
+  cudaMalloc(&d_x.data, d_x.data_size);
+
+  cudaMemcpy(d_x.data, x.data, d_x.data_size, cudaMemcpyHostToDevice);
+
+  cudaStreamAttrValue stream_attribute;
+  stream_attribute.accessPolicyWindow.base_ptr = reinterpret_cast<void*>(d_x.data);
+  stream_attribute.accessPolicyWindow.num_bytes = window_size;
+  stream_attribute.accessPolicyWindow.hitRatio = 0.6;
+  stream_attribute.accessPolicyWindow.hitProp = cudaAccessPropertyPersisting;
+  stream_attribute.accessPolicyWindow.missProp = cudaAccessPropertyStreaming;
+
+  cudaStreamSetAttribute(stream, cudaStreamAttributeAccessPolicyWindow, &stream_attribute);
+
+  DenseMatrix d_y(x.rows, x.cols, CREATE_FOR_DEVICE);
+
+  cudaMalloc(&d_y.data, d_y.data_size);
+
+  dim3 dimBlock(BLOCK_SIZE);
+
+  dim3 dimGrid((A.rows + BLOCK_SIZE - 1) / BLOCK_SIZE);
+
+  spmv<<<dimGrid, dimBlock>>>(d_A, d_x, d_y);
+
+  // Allocate host y
+  DenseMatrix y = DenseMatrix(x.rows, x.cols);
+
+  // Copy y to host
+  cudaMemcpy(y.data, d_y.data, d_y.data_size, cudaMemcpyDeviceToHost);
+
+  // Deallocate A
+  cudaFree(d_A.col_idx);
+  cudaFree(d_A.row_ptr);
+  cudaFree(d_A.val);
+
+  // Deallocate x
+  cudaFree(d_x.data);
+
+  // Deallocate y
+  cudaFree(d_y.data);
+
+  return y;
 }
 
 DenseMatrix spmv_global(const CSRMatrix& A, const DenseMatrix& x)
@@ -39,6 +113,7 @@ DenseMatrix spmv_global(const CSRMatrix& A, const DenseMatrix& x)
   cudaMemcpy(d_A.col_idx, A.col_idx, d_A.col_idx_size, cudaMemcpyHostToDevice);
   cudaMemcpy(d_A.row_ptr, A.row_ptr, d_A.row_ptr_size, cudaMemcpyHostToDevice);
   cudaMemcpy(d_A.val, A.val, d_A.val_size, cudaMemcpyHostToDevice);
+
   // Load x
   DenseMatrix d_x(x.rows, x.cols, CREATE_FOR_DEVICE);
 
@@ -154,6 +229,10 @@ int main()
     DenseMatrix x = parse_dense_matrix("data/scircuit_b.mtx");
 
     DenseMatrix y_global = spmv_global(A, x);
+    DenseMatrix y_l2_window = spmv_l2_window(A, x);
+
+    std::cout << y_global.data[0] << std::endl;
+    std::cout << y_l2_window.data[0] << std::endl;
 
   } catch (const std::exception& e) {
     std::cerr << "Error: " << e.what() << "\n";
