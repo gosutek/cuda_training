@@ -25,7 +25,7 @@ __global__ void spmv(const CSRMatrix A, const DenseMatrix x, DenseMatrix y)
   }
 }
 
-DenseMatrix spmv_l2_window(const CSRMatrix& A, const DenseMatrix& x)
+DenseMatrix spmv_l2_window(const CSRMatrix& d_A, const DenseMatrix& d_x, DenseMatrix& d_y)
 {
   cudaStream_t stream;
   cudaStreamCreate(&stream);
@@ -39,25 +39,7 @@ DenseMatrix spmv_l2_window(const CSRMatrix& A, const DenseMatrix& x)
 
   size_t window_size
     = std::min(prop.accessPolicyMaxWindowSize,
-               (int)x.data_size); // accessPolicyMaxWindowSize -> Per-stream limit for a single persistent region
-
-  CSRMatrix d_A(A.rows, A.cols, A.nnz, CREATE_FOR_DEVICE);
-  // Allocate for the 3 arrays
-  cudaMalloc(&d_A.col_idx, d_A.col_idx_size);
-  cudaMalloc(&d_A.row_ptr, d_A.row_ptr_size);
-  cudaMalloc(&d_A.val, d_A.val_size);
-
-  // Copy 3 arrays to device
-  cudaMemcpy(d_A.col_idx, A.col_idx, d_A.col_idx_size, cudaMemcpyHostToDevice);
-  cudaMemcpy(d_A.row_ptr, A.row_ptr, d_A.row_ptr_size, cudaMemcpyHostToDevice);
-  cudaMemcpy(d_A.val, A.val, d_A.val_size, cudaMemcpyHostToDevice);
-
-  // Load x
-  DenseMatrix d_x(x.rows, x.cols, CREATE_FOR_DEVICE);
-
-  cudaMalloc(&d_x.data, d_x.data_size);
-
-  cudaMemcpy(d_x.data, x.data, d_x.data_size, cudaMemcpyHostToDevice);
+               (int)d_x.data_size); // accessPolicyMaxWindowSize -> Per-stream limit for a single persistent region
 
   cudaStreamAttrValue stream_attribute;
   stream_attribute.accessPolicyWindow.base_ptr = reinterpret_cast<void*>(d_x.data);
@@ -68,86 +50,40 @@ DenseMatrix spmv_l2_window(const CSRMatrix& A, const DenseMatrix& x)
 
   cudaStreamSetAttribute(stream, cudaStreamAttributeAccessPolicyWindow, &stream_attribute);
 
-  DenseMatrix d_y(x.rows, x.cols, CREATE_FOR_DEVICE);
-
-  cudaMalloc(&d_y.data, d_y.data_size);
-
   dim3 dimBlock(BLOCK_SIZE);
 
-  dim3 dimGrid((A.rows + BLOCK_SIZE - 1) / BLOCK_SIZE);
+  dim3 dimGrid((d_A.rows + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
   spmv<<<dimGrid, dimBlock>>>(d_A, d_x, d_y);
 
+  // Reset L2 Access to Normal
+  stream_attribute.accessPolicyWindow.num_bytes = 0;
+  cudaStreamSetAttribute(stream, cudaStreamAttributeAccessPolicyWindow, &stream_attribute);
+  cudaCtxResetPersistingL2Cache();
+
   // Allocate host y
-  DenseMatrix y = DenseMatrix(x.rows, x.cols);
+  DenseMatrix y = DenseMatrix(d_x.rows, d_x.cols);
 
   // Copy y to host
   cudaMemcpy(y.data, d_y.data, d_y.data_size, cudaMemcpyDeviceToHost);
-
-  // Deallocate A
-  cudaFree(d_A.col_idx);
-  cudaFree(d_A.row_ptr);
-  cudaFree(d_A.val);
-
-  // Deallocate x
-  cudaFree(d_x.data);
-
-  // Deallocate y
-  cudaFree(d_y.data);
 
   return y;
 }
 
-DenseMatrix spmv_global(const CSRMatrix& A, const DenseMatrix& x)
+DenseMatrix spmv_global(const CSRMatrix& d_A, const DenseMatrix& d_x, DenseMatrix& d_y)
 {
-
-  // Load A
-  CSRMatrix d_A(A.rows, A.cols, A.nnz, CREATE_FOR_DEVICE);
-
-  // Allocate for the 3 arrays
-  cudaMalloc(&d_A.col_idx, d_A.col_idx_size);
-  cudaMalloc(&d_A.row_ptr, d_A.row_ptr_size);
-  cudaMalloc(&d_A.val, d_A.val_size);
-
-  // Copy 3 arrays to device
-  cudaMemcpy(d_A.col_idx, A.col_idx, d_A.col_idx_size, cudaMemcpyHostToDevice);
-  cudaMemcpy(d_A.row_ptr, A.row_ptr, d_A.row_ptr_size, cudaMemcpyHostToDevice);
-  cudaMemcpy(d_A.val, A.val, d_A.val_size, cudaMemcpyHostToDevice);
-
-  // Load x
-  DenseMatrix d_x(x.rows, x.cols, CREATE_FOR_DEVICE);
-
-  cudaMalloc(&d_x.data, d_x.data_size);
-
-  cudaMemcpy(d_x.data, x.data, d_x.data_size, cudaMemcpyHostToDevice);
-
-  // Allocate y
-  DenseMatrix d_y(x.rows, x.cols, CREATE_FOR_DEVICE);
-
-  cudaMalloc(&d_y.data, d_y.data_size);
 
   dim3 dimBlock(BLOCK_SIZE);
 
-  dim3 dimGrid((A.rows + BLOCK_SIZE - 1) / BLOCK_SIZE);
+  dim3 dimGrid((d_A.rows + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
   spmv<<<dimGrid, dimBlock>>>(d_A, d_x, d_y);
 
   // Allocate host y
-  DenseMatrix y = DenseMatrix(x.rows, x.cols);
+  DenseMatrix y = DenseMatrix(d_x.rows, d_x.cols);
 
   // Copy y to host
   cudaMemcpy(y.data, d_y.data, d_y.data_size, cudaMemcpyDeviceToHost);
-
-  // Deallocate A
-  cudaFree(d_A.col_idx);
-  cudaFree(d_A.row_ptr);
-  cudaFree(d_A.val);
-
-  // Deallocate x
-  cudaFree(d_x.data);
-
-  // Deallocate y
-  cudaFree(d_y.data);
 
   return y;
 }
@@ -225,14 +161,46 @@ int main()
 {
 
   try {
+
     CSRMatrix A = parse_sparse_matrix("data/scircuit.mtx");
     DenseMatrix x = parse_dense_matrix("data/scircuit_b.mtx");
 
-    DenseMatrix y_global = spmv_global(A, x);
-    DenseMatrix y_l2_window = spmv_l2_window(A, x);
+    // ================================ DEVICE ALLOCATION ================================
+    CSRMatrix d_A(A.rows, A.cols, A.nnz, CREATE_FOR_DEVICE);
+
+    cudaMalloc(&d_A.col_idx, d_A.col_idx_size);
+    cudaMalloc(&d_A.row_ptr, d_A.row_ptr_size);
+    cudaMalloc(&d_A.val, d_A.val_size);
+
+    cudaMemcpy(d_A.col_idx, A.col_idx, d_A.col_idx_size, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_A.row_ptr, A.row_ptr, d_A.row_ptr_size, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_A.val, A.val, d_A.val_size, cudaMemcpyHostToDevice);
+
+    DenseMatrix d_x(x.rows, x.cols, CREATE_FOR_DEVICE);
+
+    cudaMalloc(&d_x.data, d_x.data_size);
+
+    cudaMemcpy(d_x.data, x.data, d_x.data_size, cudaMemcpyHostToDevice);
+
+    DenseMatrix d_y(x.rows, x.cols, CREATE_FOR_DEVICE);
+
+    cudaMalloc(&d_y.data, d_y.data_size);
+
+    // ================================ KERNEL EXECUTION ================================
+    DenseMatrix y_global = spmv_global(d_A, d_x, d_y);
+    DenseMatrix y_l2_window = spmv_l2_window(d_A, d_x, d_y);
 
     std::cout << y_global.data[0] << std::endl;
     std::cout << y_l2_window.data[0] << std::endl;
+
+    // ================================ DEVICE DE-ALLOCATION ================================
+    cudaFree(d_A.col_idx);
+    cudaFree(d_A.row_ptr);
+    cudaFree(d_A.val);
+
+    cudaFree(d_x.data);
+
+    cudaFree(d_y.data);
 
   } catch (const std::exception& e) {
     std::cerr << "Error: " << e.what() << "\n";
