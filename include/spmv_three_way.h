@@ -27,6 +27,10 @@ struct CSRMatrix : public Matrix {
   uint32_t* row_ptr = nullptr;
   VAL_TYPE* val = nullptr;
 
+  size_t col_idx_size;
+  size_t row_ptr_size;
+  size_t val_size;
+
   bool allocated_on_device = false;
 
   CSRMatrix(int r, int c, int z, int t = CREATE_FOR_HOST)
@@ -34,6 +38,10 @@ struct CSRMatrix : public Matrix {
     rows = r;
     cols = c;
     nnz = z;
+
+    col_idx_size = nnz * sizeof(uint32_t);
+    row_ptr_size = (rows + 1) * sizeof(uint32_t);
+    val_size = nnz * sizeof(VAL_TYPE);
 
     if (t == CREATE_FOR_HOST) {
       col_idx = (uint32_t*)malloc(nnz * sizeof(uint32_t));
@@ -70,12 +78,16 @@ struct DenseMatrix : public Matrix {
 
   VAL_TYPE* data = nullptr;
 
+  size_t data_size;
+
   bool allocated_on_device = false;
 
   DenseMatrix(int r, int c, int t = CREATE_FOR_HOST)
   {
     rows = r;
     cols = c;
+
+    data_size = (rows * cols) * sizeof(VAL_TYPE);
 
     if (t == CREATE_FOR_HOST) {
       data = (VAL_TYPE*)malloc((rows * cols) * sizeof(VAL_TYPE));

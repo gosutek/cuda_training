@@ -31,25 +31,25 @@ DenseMatrix spmv_global(const CSRMatrix& A, const DenseMatrix& x)
   CSRMatrix d_A(A.rows, A.cols, A.nnz, CREATE_FOR_DEVICE);
 
   // Allocate for the 3 arrays
-  cudaMalloc(&d_A.col_idx, A.nnz * sizeof(uint32_t));
-  cudaMalloc(&d_A.row_ptr, (A.rows + 1) * sizeof(uint32_t));
-  cudaMalloc(&d_A.val, A.nnz * sizeof(VAL_TYPE));
+  cudaMalloc(&d_A.col_idx, d_A.col_idx_size);
+  cudaMalloc(&d_A.row_ptr, d_A.row_ptr_size);
+  cudaMalloc(&d_A.val, d_A.val_size);
 
   // Copy 3 arrays to device
-  cudaMemcpy(d_A.col_idx, A.col_idx, A.nnz * sizeof(uint32_t), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_A.row_ptr, A.row_ptr, (A.rows + 1) * sizeof(uint32_t), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_A.val, A.val, A.nnz * sizeof(VAL_TYPE), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_A.col_idx, A.col_idx, d_A.col_idx_size, cudaMemcpyHostToDevice);
+  cudaMemcpy(d_A.row_ptr, A.row_ptr, d_A.row_ptr_size, cudaMemcpyHostToDevice);
+  cudaMemcpy(d_A.val, A.val, d_A.val_size, cudaMemcpyHostToDevice);
   // Load x
   DenseMatrix d_x(x.rows, x.cols, CREATE_FOR_DEVICE);
 
-  cudaMalloc(&d_x.data, (x.rows * x.cols) * sizeof(VAL_TYPE));
+  cudaMalloc(&d_x.data, d_x.data_size);
 
-  cudaMemcpy(d_x.data, x.data, (x.rows * x.cols) * sizeof(VAL_TYPE), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_x.data, x.data, d_x.data_size, cudaMemcpyHostToDevice);
 
   // Allocate y
   DenseMatrix d_y(x.rows, x.cols, CREATE_FOR_DEVICE);
 
-  cudaMalloc(&d_y.data, (x.rows * x.cols) * sizeof(VAL_TYPE));
+  cudaMalloc(&d_y.data, d_y.data_size);
 
   dim3 dimBlock(BLOCK_SIZE);
 
@@ -61,7 +61,7 @@ DenseMatrix spmv_global(const CSRMatrix& A, const DenseMatrix& x)
   DenseMatrix y = DenseMatrix(x.rows, x.cols);
 
   // Copy y to host
-  cudaMemcpy(y.data, d_y.data, (y.rows * y.cols) * sizeof(VAL_TYPE), cudaMemcpyDeviceToHost);
+  cudaMemcpy(y.data, d_y.data, d_y.data_size, cudaMemcpyDeviceToHost);
 
   // Deallocate A
   cudaFree(d_A.col_idx);
