@@ -1,14 +1,21 @@
 #pragma once
 
+#include <iostream>
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
+#include <numeric>
 #include <vector>
 #include <stdexcept>
+#include "../include/mmio.h"
+#include "cuda_runtime.h"
+#include "driver_types.h"
 
 #define VAL_TYPE double
-#define CREATE_FOR_DEVICE 1
-#define CREATE_FOR_HOST 2
+
+enum AllocTarget { Host, Device };
 
 struct COO_Element {
   uint32_t row, col;
@@ -16,7 +23,15 @@ struct COO_Element {
 };
 
 struct Matrix {
+
+public:
   int rows = 0, cols = 0;
+
+protected:
+  AllocTarget _Target;
+
+private:
+  virtual void allocate_memory() = 0;
 };
 
 struct CSRMatrix : public Matrix {
@@ -31,19 +46,87 @@ struct CSRMatrix : public Matrix {
   size_t row_ptr_size;
   size_t val_size;
 
-  bool allocated_on_device = false;
-
-  CSRMatrix(int r, int c, int z, int t = CREATE_FOR_HOST)
+  CSRMatrix(const char* filepath, AllocTarget Target)
   {
-    rows = r;
-    cols = c;
-    nnz = z;
+    _Target = Target;
+    FILE* f;
+    f = fopen(filepath, "r");
+    if (f == NULL) { throw std::runtime_error("Failed to open file"); }
+
+    MM_typecode matcode;
+    if (mm_read_banner(f, &matcode) != 0) { throw std::runtime_error("Couldn't parse matrix"); }
+
+    if (!mm_is_sparse(matcode)) { throw std::runtime_error("CSRMatrix is non-sparse -> should be sparse"); }
+
+    if (mm_read_mtx_crd_size(f, &rows, &cols, &nnz) != 0) { throw std::runtime_error("Failed to read matrix size"); }
 
     col_idx_size = nnz * sizeof(uint32_t);
     row_ptr_size = (rows + 1) * sizeof(uint32_t);
     val_size = nnz * sizeof(VAL_TYPE);
 
-    if (t == CREATE_FOR_HOST) {
+    allocate_memory();
+
+    std::vector<COO_Element> coo_elements;
+    coo_elements.reserve(nnz);
+    for (int i = 0; i < nnz; ++i) {
+      COO_Element e;
+      fscanf(f, "%u %u %lg\n", &e.row, &e.col, &e.val);
+      e.row--;
+      e.col--;
+      coo_elements.push_back(e);
+    }
+    fclose(f);
+
+    std::sort(coo_elements.begin(), coo_elements.end(),
+              [](const auto& a, const auto& b) { return std::tie(a.row, a.col) < std::tie(b.row, b.col); });
+
+    for (size_t i = 0; i < coo_elements.size(); ++i) {
+      const auto& e = coo_elements[i];
+      row_ptr[e.row + 1]++; // Account for element ONLY on the previous row
+      col_idx[i] = e.col;
+      val[i] = e.val;
+    }
+    std::partial_sum(row_ptr, row_ptr + (rows + 1), row_ptr);
+  }
+
+  CSRMatrix(const CSRMatrix& src, AllocTarget Target)
+      : nnz(src.nnz), col_idx_size(src.col_idx_size), row_ptr_size(src.row_ptr_size), val_size(src.val_size)
+  {
+
+    rows = src.rows;
+    cols = src.cols;
+    _Target = Target;
+
+    allocate_memory();
+
+    if (src._Target == AllocTarget::Host && _Target == AllocTarget::Host) { // Host to Host
+      std::memcpy(col_idx, src.col_idx, col_idx_size);
+      std::memcpy(row_ptr, src.row_ptr, row_ptr_size);
+      std::memcpy(val, src.val, val_size);
+    } else if (src._Target == AllocTarget::Host && _Target == AllocTarget::Device) { // Host to dev
+      cudaMemcpy(col_idx, src.col_idx, col_idx_size, cudaMemcpyHostToDevice);
+      cudaMemcpy(row_ptr, src.row_ptr, row_ptr_size, cudaMemcpyHostToDevice);
+      cudaMemcpy(val, src.val, val_size, cudaMemcpyHostToDevice);
+    }
+  }
+
+  ~CSRMatrix()
+  {
+    if (_Target == AllocTarget::Host) {
+      free(col_idx);
+      free(row_ptr);
+      free(val);
+    } else {
+      cudaFree(col_idx);
+      cudaFree(row_ptr);
+      cudaFree(val);
+    }
+  }
+
+private:
+  virtual void allocate_memory() override
+  {
+    if (_Target == AllocTarget::Host) {
       col_idx = (uint32_t*)malloc(nnz * sizeof(uint32_t));
       if (!col_idx) throw std::runtime_error("Failed to allocate col_idx");
 
@@ -59,17 +142,10 @@ struct CSRMatrix : public Matrix {
         free(val);
         throw std::runtime_error("Failed to allocate row_ptr");
       }
-    } else if (t == CREATE_FOR_DEVICE) {
-      allocated_on_device = true;
-    }
-  }
-
-  ~CSRMatrix()
-  {
-    if (!allocated_on_device) {
-      free(col_idx);
-      free(row_ptr);
-      free(val);
+    } else if (_Target == AllocTarget::Device) {
+      cudaMalloc(&col_idx, col_idx_size);
+      cudaMalloc(&row_ptr, row_ptr_size);
+      cudaMalloc(&val, val_size);
     }
   }
 };
@@ -80,25 +156,66 @@ struct DenseMatrix : public Matrix {
 
   size_t data_size;
 
-  bool allocated_on_device = false;
-
-  DenseMatrix(int r, int c, int t = CREATE_FOR_HOST)
+  DenseMatrix(const char* filepath, AllocTarget Target)
   {
-    rows = r;
-    cols = c;
+    _Target = Target;
+    FILE* f;
+    f = fopen(filepath, "r");
+    if (f == NULL) { throw std::runtime_error("Failed to open file"); }
+
+    MM_typecode matcode;
+    if (mm_read_banner(f, &matcode) != 0) { throw std::runtime_error("Couldn't parse matrix"); }
+
+    if (!mm_is_dense(matcode)) { throw std::runtime_error("Matrix is non-dense -> should be dense"); }
+
+    if (mm_read_mtx_array_size(f, &rows, &cols) != 0) { throw std::runtime_error("Failed to read matrix size"); }
 
     data_size = (rows * cols) * sizeof(VAL_TYPE);
 
-    if (t == CREATE_FOR_HOST) {
-      data = (VAL_TYPE*)malloc((rows * cols) * sizeof(VAL_TYPE));
-      if (!data) { throw std::runtime_error("Failed to allocate data"); }
-    } else if (t == CREATE_FOR_DEVICE) {
-      allocated_on_device = true;
+    allocate_memory();
+
+    for (int i = 0; i < rows; ++i) {
+      VAL_TYPE e;
+      fscanf(f, "%lg\n", &e);
+
+      data[i] = e;
+    }
+
+    fclose(f);
+  }
+
+  DenseMatrix(const DenseMatrix& src, AllocTarget Target) : data_size(src.data_size)
+  {
+    rows = src.rows;
+    cols = src.cols;
+    _Target = Target;
+    allocate_memory();
+
+    if (src._Target == AllocTarget::Host && _Target == AllocTarget::Host) { // Host to Host
+      memcpy(data, src.data, data_size);
+    } else if (src._Target == AllocTarget::Host && _Target == AllocTarget::Device) { // Host to Dev
+      cudaMemcpy(data, src.data, data_size, cudaMemcpyHostToDevice);
+    } else if (src._Target == AllocTarget::Device && _Target == AllocTarget::Host) { // Dev to host
+      cudaMemcpy(data, src.data, data_size, cudaMemcpyDeviceToHost);
+    } else {
+      cudaMemcpy(data, src.data, data_size, cudaMemcpyDeviceToDevice);
     }
   }
 
   ~DenseMatrix()
   {
-    if (!allocated_on_device) free(data);
+    if (_Target == AllocTarget::Host) free(data);
+    else cudaFree(data);
+  }
+
+private:
+  virtual void allocate_memory() override
+  {
+    if (_Target == AllocTarget::Host) {
+      data = (VAL_TYPE*)malloc((rows * cols) * sizeof(VAL_TYPE));
+      if (!data) { throw std::runtime_error("Failed to allocate data"); }
+    } else if (_Target == AllocTarget::Device) {
+      cudaMalloc(&data, data_size);
+    }
   }
 };
