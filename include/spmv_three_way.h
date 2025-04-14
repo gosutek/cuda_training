@@ -205,7 +205,9 @@ struct DenseMatrix : public Matrix {
   ~DenseMatrix()
   {
     if (_Target == AllocTarget::Host) free(data);
-    else cudaFree(data);
+    else {
+      cudaFree(data);
+    }
   }
 
 private:

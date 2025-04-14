@@ -1,19 +1,20 @@
 #include <iostream>
 #include "../include/spmv_three_way.h"
 
-#define BLOCK_SIZE 256
+#define BLOCK_SIZE 32
 #define DEVICE_ID 0
 
 __global__ void spmv(const CSRMatrix A, const DenseMatrix x, DenseMatrix y)
 {
   int row = blockIdx.x * blockDim.x + threadIdx.x;
   if (row == 0) {
+    printf("x.cols = %d\nx.rows = %d\nx.data points to %p\n", x.cols, x.rows, x.data);
     printf("Thread %d: x.data[0] = %f\n", row, x.data[0]);
     printf("Thread %d: x.data[0] = %f\n", row, x.data[1]);
     printf("Thread %d: x.data[0] = %f\n", row, x.data[2]);
     printf("Thread %d: x.data[0] = %f\n", row, x.data[3]);
     printf("Thread %d: x.data[0] = %f\n", row, x.data[4]);
-    printf("Thread %d: x.data[0] = %lg\n", row, A.val[0]);
+    printf("\nThread %d: A.val[0] = %lg\n", row, A.val[0]);
   }
 
   if (row < A.rows) {
@@ -78,6 +79,12 @@ DenseMatrix spmv_global(const CSRMatrix& d_A, const DenseMatrix& d_x, DenseMatri
   dim3 dimBlock(BLOCK_SIZE);
 
   dim3 dimGrid((d_A.rows + BLOCK_SIZE - 1) / BLOCK_SIZE);
+
+  std::cout << "data points to " << d_x.data << std::endl;
+  VAL_TYPE* host_ptr = (VAL_TYPE*)malloc(d_x.data_size);
+  std::cout << host_ptr[0] << std::endl;
+  cudaMemcpy(host_ptr, d_x.data, d_x.data_size, cudaMemcpyDeviceToHost);
+  std::cout << host_ptr[0] << std::endl;
 
   spmv<<<dimGrid, dimBlock>>>(d_A, d_x, d_y);
 
