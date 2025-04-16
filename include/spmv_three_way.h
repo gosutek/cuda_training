@@ -17,6 +17,14 @@
 #include "driver_types.h"
 
 #define VAL_TYPE double
+#define CHECK_CUDA(S)                                                                                                  \
+  do {                                                                                                                 \
+    cudaError_t err = S;                                                                                               \
+    if (err != cudaSuccess) {                                                                                          \
+      std::cerr << "CUDA error at " << __FILE__ << ":" << __LINE__ << ": " << cudaGetErrorString(err) << std::endl;    \
+      exit(EXIT_FAILURE);                                                                                              \
+    }                                                                                                                  \
+  } while (0)
 
 enum AllocTarget { Host, Device };
 
@@ -40,8 +48,6 @@ private:
 struct CSRMatrix : public Matrix {
 
 public:
-  cudaError_t cuda_error = cudaSuccess;
-
   int nnz = 0;
 
   uint32_t* col_idx = nullptr;
@@ -111,26 +117,9 @@ public:
       std::memcpy(row_ptr, src.row_ptr, row_ptr_size);
       std::memcpy(val, src.val, val_size);
     } else if (src._Target == AllocTarget::Host && _Target == AllocTarget::Device) { // Host to dev
-      cuda_error = cudaMemcpy(col_idx, src.col_idx, col_idx_size, cudaMemcpyHostToDevice);
-
-      if (cuda_error != cudaSuccess) {
-        fprintf(stderr, "Failed to copy CSRMatrix.col_idx (error code %s)\n", cudaGetErrorString(cuda_error));
-        exit(EXIT_FAILURE);
-      }
-
-      cuda_error = cudaMemcpy(row_ptr, src.row_ptr, row_ptr_size, cudaMemcpyHostToDevice);
-
-      if (cuda_error != cudaSuccess) {
-        fprintf(stderr, "Failed to copy CSRMatrix.row_ptr (error code %s)\n", cudaGetErrorString(cuda_error));
-        exit(EXIT_FAILURE);
-      }
-
-      cuda_error = cudaMemcpy(val, src.val, val_size, cudaMemcpyHostToDevice);
-
-      if (cuda_error != cudaSuccess) {
-        fprintf(stderr, "Failed to copy CSRMatrix.val (error code %s)\n", cudaGetErrorString(cuda_error));
-        exit(EXIT_FAILURE);
-      }
+      CHECK_CUDA(cudaMemcpy(col_idx, src.col_idx, col_idx_size, cudaMemcpyHostToDevice));
+      CHECK_CUDA(cudaMemcpy(row_ptr, src.row_ptr, row_ptr_size, cudaMemcpyHostToDevice));
+      CHECK_CUDA(cudaMemcpy(val, src.val, val_size, cudaMemcpyHostToDevice));
     }
   }
 
@@ -141,26 +130,9 @@ public:
       free(row_ptr);
       free(val);
     } else {
-      cuda_error = cudaFree(col_idx);
-
-      if (cuda_error != cudaSuccess) {
-        fprintf(stderr, "Failed to free CSRMatrix.col_idx (error code %s)\n", cudaGetErrorString(cuda_error));
-        exit(EXIT_FAILURE);
-      }
-
-      cuda_error = cudaFree(row_ptr);
-
-      if (cuda_error != cudaSuccess) {
-        fprintf(stderr, "Failed to free CSRMatrix.row_ptr (error code %s)\n", cudaGetErrorString(cuda_error));
-        exit(EXIT_FAILURE);
-      }
-
-      cuda_error = cudaFree(val);
-
-      if (cuda_error != cudaSuccess) {
-        fprintf(stderr, "Failed to free CSRMatrix.val (error code %s)\n", cudaGetErrorString(cuda_error));
-        exit(EXIT_FAILURE);
-      }
+      CHECK_CUDA(cudaFree(col_idx));
+      CHECK_CUDA(cudaFree(row_ptr));
+      CHECK_CUDA(cudaFree(val));
     }
   }
 
@@ -184,26 +156,9 @@ private:
         throw std::runtime_error("Failed to allocate row_ptr");
       }
     } else if (_Target == AllocTarget::Device) {
-      cuda_error = cudaMalloc(&col_idx, col_idx_size);
-
-      if (cuda_error != cudaSuccess) {
-        fprintf(stderr, "Failed to allocate CSRMatrix.col_idx (error code %s)\n", cudaGetErrorString(cuda_error));
-        exit(EXIT_FAILURE);
-      }
-
-      cuda_error = cudaMalloc(&row_ptr, row_ptr_size);
-
-      if (cuda_error != cudaSuccess) {
-        fprintf(stderr, "Failed to allocate CSRMatrix.row_ptr (error code %s)\n", cudaGetErrorString(cuda_error));
-        exit(EXIT_FAILURE);
-      }
-
-      cuda_error = cudaMalloc(&val, val_size);
-
-      if (cuda_error != cudaSuccess) {
-        fprintf(stderr, "Failed to allocate CSRMatrix.val (error code %s)\n", cudaGetErrorString(cuda_error));
-        exit(EXIT_FAILURE);
-      }
+      CHECK_CUDA(cudaMalloc(&col_idx, col_idx_size));
+      CHECK_CUDA(cudaMalloc(&row_ptr, row_ptr_size));
+      CHECK_CUDA(cudaMalloc(&val, val_size));
     }
   }
 };
@@ -211,8 +166,6 @@ private:
 struct DenseMatrix : public Matrix {
 
 public:
-  cudaError_t cuda_error = cudaSuccess;
-
   VAL_TYPE* data = nullptr;
 
   size_t data_size;
@@ -256,16 +209,11 @@ public:
     if (src._Target == AllocTarget::Host && _Target == AllocTarget::Host) { // Host to Host
       std::memcpy(data, src.data, data_size);
     } else if (src._Target == AllocTarget::Host && _Target == AllocTarget::Device) { // Host to Dev
-      cuda_error = cudaMemcpy(data, src.data, data_size, cudaMemcpyHostToDevice);
+      CHECK_CUDA(cudaMemcpy(data, src.data, data_size, cudaMemcpyHostToDevice));
     } else if (src._Target == AllocTarget::Device && _Target == AllocTarget::Host) { // Dev to host
-      cuda_error = cudaMemcpy(data, src.data, data_size, cudaMemcpyDeviceToHost);
+      CHECK_CUDA(cudaMemcpy(data, src.data, data_size, cudaMemcpyDeviceToHost));
     } else {
-      cuda_error = cudaMemcpy(data, src.data, data_size, cudaMemcpyDeviceToDevice);
-    }
-
-    if (cuda_error != cudaSuccess) {
-      fprintf(stderr, "Failed to copy DenseMatrix (error code %s)\n", cudaGetErrorString(cuda_error));
-      exit(EXIT_FAILURE);
+      CHECK_CUDA(cudaMemcpy(data, src.data, data_size, cudaMemcpyDeviceToDevice));
     }
   }
 
@@ -273,12 +221,7 @@ public:
   {
     if (_Target == AllocTarget::Host) free(data);
     else {
-      cuda_error = cudaFree(data);
-    }
-
-    if (cuda_error != cudaSuccess) {
-      fprintf(stderr, "Failed to free DenseMatrix (error code %s)\n", cudaGetErrorString(cuda_error));
-      exit(EXIT_FAILURE);
+      CHECK_CUDA(cudaFree(data));
     }
   }
 
@@ -289,12 +232,7 @@ private:
       data = (VAL_TYPE*)malloc((rows * cols) * sizeof(VAL_TYPE));
       if (!data) { throw std::runtime_error("Failed to allocate data"); }
     } else if (_Target == AllocTarget::Device) {
-      cuda_error = cudaMalloc(&data, data_size);
-    }
-
-    if (cuda_error != cudaSuccess) {
-      fprintf(stderr, "Failed to allocate DenseMatrix (error code %s)\n", cudaGetErrorString(cuda_error));
-      exit(EXIT_FAILURE);
+      CHECK_CUDA(cudaMalloc(&data, data_size));
     }
   }
 };
