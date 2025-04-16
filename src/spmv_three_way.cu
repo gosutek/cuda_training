@@ -1,5 +1,3 @@
-#include <cstdlib>
-#include <iostream>
 #include "../include/spmv_three_way.h"
 
 #define BLOCK_SIZE 32
@@ -49,6 +47,7 @@ DenseMatrix spmv_l2_window(const CSRMatrix& d_A, const DenseMatrix& d_x, DenseMa
   dim3 dimGrid((d_A.rows + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
   spmv<<<dimGrid, dimBlock>>>(d_A.col_idx, d_A.row_ptr, d_A.val, d_A.rows, d_x.data, d_y.data);
+  cudaDeviceSynchronize();
 
   // Reset L2 Access to Normal
   stream_attribute.accessPolicyWindow.num_bytes = 0;
@@ -66,6 +65,7 @@ DenseMatrix spmv_global(const CSRMatrix& d_A, const DenseMatrix& d_x, DenseMatri
   dim3 dimGrid((d_A.rows + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
   spmv<<<dimGrid, dimBlock>>>(d_A.col_idx, d_A.row_ptr, d_A.val, d_A.rows, d_x.data, d_y.data);
+  cudaDeviceSynchronize();
 
   cudaError_t err = cudaGetLastError();
   if (err != cudaSuccess) {
