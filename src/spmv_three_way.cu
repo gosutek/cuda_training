@@ -1,30 +1,21 @@
+#include <cstdlib>
 #include <iostream>
 #include "../include/spmv_three_way.h"
 
 #define BLOCK_SIZE 32
 #define DEVICE_ID 0
 
-__global__ void spmv(const CSRMatrix A, const DenseMatrix x, DenseMatrix y)
+__global__ void spmv(const uint32_t* col_idx, const uint32_t* row_ptr, const VAL_TYPE* val, const int rows,
+                     const VAL_TYPE* vector_data, VAL_TYPE* res)
 {
   int row = blockIdx.x * blockDim.x + threadIdx.x;
-  if (row == 0) {
-    printf("x.cols = %d\nx.rows = %d\nx.data points to %p\n", x.cols, x.rows, x.data);
-    printf("Thread %d: x.data[0] = %f\n", row, x.data[0]);
-    printf("Thread %d: x.data[0] = %f\n", row, x.data[1]);
-    printf("Thread %d: x.data[0] = %f\n", row, x.data[2]);
-    printf("Thread %d: x.data[0] = %f\n", row, x.data[3]);
-    printf("Thread %d: x.data[0] = %f\n", row, x.data[4]);
-    printf("\nThread %d: A.val[0] = %lg\n", row, A.val[0]);
-  }
 
-  if (row < A.rows) {
+  if (row < rows) {
 
     VAL_TYPE row_result_val = 0.0;
 
-    for (uint32_t i = A.row_ptr[row]; i < A.row_ptr[row + 1]; ++i) {
-      row_result_val += A.val[i] * x.data[A.col_idx[i]];
-    }
-    y.data[row] = row_result_val;
+    for (uint32_t i = row_ptr[row]; i < row_ptr[row + 1]; ++i) { row_result_val += val[i] * vector_data[col_idx[i]]; }
+    res[row] = row_result_val;
   }
 }
 
@@ -80,13 +71,13 @@ DenseMatrix spmv_global(const CSRMatrix& d_A, const DenseMatrix& d_x, DenseMatri
 
   dim3 dimGrid((d_A.rows + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
-  std::cout << "data points to " << d_x.data << std::endl;
-  VAL_TYPE* host_ptr = (VAL_TYPE*)malloc(d_x.data_size);
-  std::cout << host_ptr[0] << std::endl;
-  cudaMemcpy(host_ptr, d_x.data, d_x.data_size, cudaMemcpyDeviceToHost);
-  std::cout << host_ptr[0] << std::endl;
+  spmv<<<dimGrid, dimBlock>>>(d_A.col_idx, d_A.row_ptr, d_A.val, d_A.rows, d_x.data, d_y.data);
 
-  spmv<<<dimGrid, dimBlock>>>(d_A, d_x, d_y);
+  cudaError_t err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    fprintf(stderr, "Error check after kernel launch ~ %s", cudaGetErrorString(err));
+    exit(EXIT_FAILURE);
+  }
 
   return DenseMatrix(d_y, AllocTarget::Host);
 }
@@ -105,7 +96,6 @@ int main()
     DenseMatrix d_x(x, AllocTarget::Device);
 
     DenseMatrix d_y(x, AllocTarget::Device);
-
     // ================================ KERNEL EXECUTION ================================
     DenseMatrix y_global = spmv_global(d_A, d_x, d_y);
     // DenseMatrix y_l2_window = spmv_l2_window(d_A, d_x, d_y);

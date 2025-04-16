@@ -281,7 +281,6 @@ public:
       exit(EXIT_FAILURE);
     }
   }
-  DenseMatrix(const DenseMatrix& other) {}
 
 private:
   virtual void allocate_memory() override
