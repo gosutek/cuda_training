@@ -24,8 +24,15 @@
 
 enum AllocTarget { Host, Device };
 
-__global__ void spmv(const uint32_t* col_idx, const uint32_t* row_ptr, const VAL_TYPE* val, const int rows,
-                     const VAL_TYPE* vector_data, VAL_TYPE* res)
+__global__ void spmv_shared_mem(uint32_t* const col_idx, uint32_t* const row_ptr, VAL_TYPE* const val, const int rows,
+                                VAL_TYPE* const vector_data, VAL_TYPE* res)
+{
+  int block_row = blockIdx.y;
+  int block_col = blockIdx.x;
+}
+
+__global__ void spmv(const uint32_t* const col_idx, const uint32_t* const row_ptr, const VAL_TYPE* const val,
+                     const int rows, const VAL_TYPE* const vector_data, VAL_TYPE* const res)
 {
   int row = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -141,6 +148,11 @@ public:
       CHECK_CUDA(cudaMemcpy(row_ptr, src.row_ptr, row_ptr_size, cudaMemcpyHostToDevice));
       CHECK_CUDA(cudaMemcpy(val, src.val, val_size, cudaMemcpyHostToDevice));
     }
+  }
+
+  __device__ void
+  get_sub_matrix(const uint32_t* const col_idx, const uint32_t* const row_ptr, const VAL_TYPE* const val) const
+  {
   }
 
   ~CSRMatrix()
@@ -267,6 +279,23 @@ private:
   }
 };
 
+DenseMatrix spmv_shared(const CSRMatrix& d_A, const DenseMatrix& d_x, DenseMatrix& d_y)
+{
+  dim3 dimBlock(BLOCK_SIZE, BLOCK_SIZE);
+  dim3 dimGrid((d_A.cols + BLOCK_SIZE - 1) / BLOCK_SIZE, (d_A.rows + BLOCK_SIZE - 1 / BLOCK_SIZE));
+
+  spmv<<<dimGrid, dimBlock>>>(d_A.col_idx, d_A.row_ptr, d_A.val, d_A.rows, d_x.data, d_y.data);
+  cudaDeviceSynchronize();
+
+  cudaError_t err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    fprintf(stderr, "Error check after kernel launch ~ %s", cudaGetErrorString(err));
+    exit(EXIT_FAILURE);
+  }
+
+  return DenseMatrix(d_y, AllocTarget::Host);
+}
+
 DenseMatrix spmv_l2_window(const CSRMatrix& d_A, const DenseMatrix& d_x, DenseMatrix& d_y)
 {
   cudaStream_t stream;
@@ -343,6 +372,7 @@ int main()
     // ================================ KERNEL EXECUTION ================================
     DenseMatrix y_global = spmv_global(d_A, d_x, d_y);
     DenseMatrix y_l2_window = spmv_l2_window(d_A, d_x, d_y);
+    DenseMatrix y_shared = spmv_shared(d_A, d_x, d_y);
 
     std::cout << y_global.data[0] << std::endl;
     std::cout << y_l2_window.data[0] << std::endl;
