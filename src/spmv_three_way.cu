@@ -33,7 +33,9 @@ __global__ void spmv(const uint32_t* col_idx, const uint32_t* row_ptr, const VAL
 
     VAL_TYPE row_result_val = 0.0;
 
-    for (uint32_t i = row_ptr[row]; i < row_ptr[row + 1]; ++i) { row_result_val += val[i] * vector_data[col_idx[i]]; }
+    for (uint32_t i = row_ptr[row]; i < row_ptr[row + 1]; ++i) {
+      row_result_val += val[i] * vector_data[col_idx[i]];
+    }
     res[row] = row_result_val;
   }
 }
@@ -74,14 +76,22 @@ public:
     _Target = Target;
     FILE* f;
     f = fopen(filepath, "r");
-    if (f == NULL) { throw std::runtime_error("Failed to open file"); }
+    if (f == NULL) {
+      throw std::runtime_error("Failed to open file");
+    }
 
     MM_typecode matcode;
-    if (mm_read_banner(f, &matcode) != 0) { throw std::runtime_error("Couldn't parse matrix"); }
+    if (mm_read_banner(f, &matcode) != 0) {
+      throw std::runtime_error("Couldn't parse matrix");
+    }
 
-    if (!mm_is_sparse(matcode)) { throw std::runtime_error("CSRMatrix is non-sparse -> should be sparse"); }
+    if (!mm_is_sparse(matcode)) {
+      throw std::runtime_error("CSRMatrix is non-sparse -> should be sparse");
+    }
 
-    if (mm_read_mtx_crd_size(f, &rows, &cols, &nnz) != 0) { throw std::runtime_error("Failed to read matrix size"); }
+    if (mm_read_mtx_crd_size(f, &rows, &cols, &nnz) != 0) {
+      throw std::runtime_error("Failed to read matrix size");
+    }
 
     col_idx_size = nnz * sizeof(uint32_t);
     row_ptr_size = (rows + 1) * sizeof(uint32_t);
@@ -186,14 +196,22 @@ public:
     _Target = Target;
     FILE* f;
     f = fopen(filepath, "r");
-    if (f == NULL) { throw std::runtime_error("Failed to open file"); }
+    if (f == NULL) {
+      throw std::runtime_error("Failed to open file");
+    }
 
     MM_typecode matcode;
-    if (mm_read_banner(f, &matcode) != 0) { throw std::runtime_error("Couldn't parse matrix"); }
+    if (mm_read_banner(f, &matcode) != 0) {
+      throw std::runtime_error("Couldn't parse matrix");
+    }
 
-    if (!mm_is_dense(matcode)) { throw std::runtime_error("Matrix is non-dense -> should be dense"); }
+    if (!mm_is_dense(matcode)) {
+      throw std::runtime_error("Matrix is non-dense -> should be dense");
+    }
 
-    if (mm_read_mtx_array_size(f, &rows, &cols) != 0) { throw std::runtime_error("Failed to read matrix size"); }
+    if (mm_read_mtx_array_size(f, &rows, &cols) != 0) {
+      throw std::runtime_error("Failed to read matrix size");
+    }
 
     data_size = (rows * cols) * sizeof(VAL_TYPE);
 
@@ -240,7 +258,9 @@ private:
   {
     if (_Target == AllocTarget::Host) {
       data = (VAL_TYPE*)malloc((rows * cols) * sizeof(VAL_TYPE));
-      if (!data) { throw std::runtime_error("Failed to allocate data"); }
+      if (!data) {
+        throw std::runtime_error("Failed to allocate data");
+      }
     } else if (_Target == AllocTarget::Device) {
       CHECK_CUDA(cudaMalloc(&data, data_size));
     }
